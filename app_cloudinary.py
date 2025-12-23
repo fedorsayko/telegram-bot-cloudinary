@@ -10,6 +10,7 @@ import io
 import cloudinary
 import cloudinary.uploader
 import cloudinary.api
+from telebot import types  # Импорт types в начале файла
 
 # =================== НАСТРОЙКИ ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ===================
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
@@ -67,6 +68,13 @@ def get_username(user):
         return name
     else:
         return f"user_{user.id}"
+
+def create_status_keyboard():
+    """Создание клавиатуры с кнопкой 'Проверить статус'"""
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=False)
+    status_button = types.KeyboardButton('Проверить статус')
+    markup.add(status_button)
+    return markup
 
 # =================== GOOGLE SHEETS ФУНКЦИИ ===================
 def get_google_credentials():
@@ -136,12 +144,6 @@ def upload_to_cloudinary(file_bytes, filename, username):
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     """Обработка команды /start"""
-    # Создаем клавиатуру с кнопкой
-    from telebot import types
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    status_button = types.KeyboardButton('Проверить статус')
-    markup.add(status_button)
-    
     welcome_text = """
 👋 Привет! Я бот для учета расходов и фото.
 
@@ -158,24 +160,17 @@ def handle_start(message):
 
 📲 Или просто нажмите кнопку ниже ⬇️
 """
-    bot.send_message(message.chat.id, welcome_text, reply_markup=markup)
+    bot.send_message(message.chat.id, welcome_text, reply_markup=create_status_keyboard())
     logger.info(f"Пользователь {message.from_user.id} запустил бота")
 
 @bot.message_handler(func=lambda message: message.text == 'Проверить статус')
 def handle_status_button(message):
     """Обработка нажатия на кнопку 'Проверить статус'"""
-    # Вызываем функцию handle_status, передавая ей сообщение
     handle_status(message)
 
 @bot.message_handler(commands=['help'])
 def handle_help(message):
     """Обработка команды /help"""
-    # Создаем клавиатуру с кнопкой
-    from telebot import types
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    status_button = types.KeyboardButton('Проверить статус')
-    markup.add(status_button)
-    
     help_text = """
 📚 **Справка по использованию:**
 
@@ -191,7 +186,7 @@ def handle_help(message):
 • Фото - в Cloudinary
 • Ссылки на фото - в таблицу
 """
-    bot.reply_to(message, help_text, reply_markup=markup)
+    bot.reply_to(message, help_text, reply_markup=create_status_keyboard())
 
 @bot.message_handler(commands=['status'])
 def handle_status(message):
@@ -217,13 +212,7 @@ def handle_status(message):
 
 💬 Бот готов к работе!
 """
-        # Создаем клавиатуру с кнопкой
-        from telebot import types
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        status_button = types.KeyboardButton('Проверить статус')
-        markup.add(status_button)
-        
-        bot.reply_to(message, status_text, reply_markup=markup)
+        bot.reply_to(message, status_text, reply_markup=create_status_keyboard())
         logger.info(f"Пользователь {message.from_user.id} запросил статус")
         
     except Exception as e:
@@ -247,7 +236,7 @@ def handle_text(message):
         
         if len(parts) != 2:
             error_msg = "❌ Неправильный формат.\n\nИспользуйте: <сумма> <категория>\nПример: 1500 продукты"
-            bot.reply_to(message, error_msg)
+            bot.reply_to(message, error_msg, reply_markup=create_status_keyboard())
             return
         
         amount_str, category = parts
@@ -262,7 +251,7 @@ def handle_text(message):
                 
         except ValueError:
             error_msg = "❌ Сумма должна быть положительным числом.\nПример: 1500 или 1500.50"
-            bot.reply_to(message, error_msg)
+            bot.reply_to(message, error_msg, reply_markup=create_status_keyboard())
             return
         
         # Получаем данные пользователя
@@ -274,7 +263,7 @@ def handle_text(message):
         sheet = connect_to_sheets()
         if not sheet:
             error_msg = "❌ Ошибка подключения к Google Таблицы"
-            bot.reply_to(message, error_msg)
+            bot.reply_to(message, error_msg, reply_markup=create_status_keyboard())
             return
         
         # Находим первую пустую строку
@@ -304,18 +293,12 @@ def handle_text(message):
 
 Данные сохранены в Google Таблицу.
 """
-        # Создаем клавиатуру с кнопкой
-        from telebot import types
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        status_button = types.KeyboardButton('Проверить статус')
-        markup.add(status_button)
-        
-        bot.reply_to(message, response, reply_markup=markup)
+        bot.reply_to(message, response, reply_markup=create_status_keyboard())
         logger.info(f"✅ Расход записан: {username} - {amount} - {category}")
         
     except Exception as e:
         error_msg = f"❌ Произошла ошибка: {str(e)}\n\nПопробуйте еще раз."
-        bot.reply_to(message, error_msg)
+        bot.reply_to(message, error_msg, reply_markup=create_status_keyboard())
         logger.error(f"Ошибка обработки текста: {e}")
 
 # =================== ОБРАБОТКА ФОТОГРАФИЙ ===================
@@ -349,6 +332,8 @@ def handle_photo(message):
                 message_id=processing_msg.message_id,
                 text="✅ Фото получено, но не удалось загрузить в облако."
             )
+            # Отправляем клавиатуру отдельным сообщением
+            bot.send_message(message.chat.id, "Попробуйте еще раз.", reply_markup=create_status_keyboard())
             return
         
         # Сохраняем информацию в Google Таблицу
@@ -367,8 +352,8 @@ def handle_photo(message):
                 # ЗАПИСЫВАЕМ ДАННЫЕ В ТАБЛИЦУ:
                 # 1) Имя пользователя
                 # 2) Дата
-                # 3) Сумма = 0 (ИЗМЕНЕНИЕ 1)
-                # 4) Категория = название файла (ИЗМЕНЕНИЕ 2)
+                # 3) Сумма = 0
+                # 4) Категория = название файла
                 # 5) Ссылка на файл
                 data_to_write = [
                     username,
@@ -384,7 +369,7 @@ def handle_photo(message):
             except Exception as e:
                 logger.warning(f"Не удалось записать в таблицу (но фото загружено): {e}")
         
-        # Отправляем финальный ответ
+        # ОТПРАВЛЯЕМ ФИНАЛЬНЫЙ ОТВЕТ БЕЗ КЛАВИАТУРЫ В edit_message_text
         success_msg = f"""
 ✅ Фото успешно загружено!
 
@@ -396,18 +381,15 @@ def handle_photo(message):
 
 Фото доступно по ссылке выше.
 """
-        # Создаем клавиатуру с кнопкой
-        from telebot import types
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        status_button = types.KeyboardButton('Проверить статус')
-        markup.add(status_button)
-        
+        # Редактируем сообщение без клавиатуры (это исправляет ошибку 400)
         bot.edit_message_text(
             chat_id=message.chat.id,
             message_id=processing_msg.message_id,
-            text=success_msg,
-            reply_markup=markup
+            text=success_msg
         )
+        
+        # Отправляем клавиатуру отдельным сообщением
+        bot.send_message(message.chat.id, "Что дальше?", reply_markup=create_status_keyboard())
         logger.info(f"Фото успешно обработано: {filename}")
         
     except Exception as e:
@@ -415,7 +397,7 @@ def handle_photo(message):
         
         # Пытаемся отправить сообщение об ошибке
         try:
-            bot.reply_to(message, "❌ Не удалось обработать фото. Попробуйте еще раз.")
+            bot.reply_to(message, "❌ Не удалось обработать фото. Попробуйте еще раз.", reply_markup=create_status_keyboard())
         except:
             pass
 
@@ -603,7 +585,7 @@ def set_webhook_manual():
             <p><code>https://api.telegram.org/bot[ВАШ_ТОКЕН]/setWebhook?url={webhook_url}</code></p>
             <p><a href="/">Вернуться на главную</a></p>
         </body>
-        </html>
+</html>
         """, 500
 
 # =================== ЗАПУСК ПРИЛОЖЕНИЯ ===================
