@@ -18,10 +18,10 @@ GOOGLE_SHEETS_KEY = os.environ.get('GOOGLE_SHEETS_KEY')
 TIMEZONE_OFFSET = int(os.environ.get('TIMEZONE_OFFSET', 3))
 GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_CREDENTIALS_JSON')
 
-# Ключи Cloudinary
+# Ключи Cloudinary - ИСПРАВЛЕННЫЕ НАЗВАНИЯ ПЕРЕМЕННЫХ
 CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME')
-CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_SECRET')
-CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET')
+CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY')  # Исправлено
+CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET')  # Исправлено
 
 # Инициализация бота и Flask
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
@@ -43,8 +43,14 @@ if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
         secure=True
     )
     logger.info("✅ Cloudinary настроен успешно")
+    logger.info(f"Cloud name: {CLOUDINARY_CLOUD_NAME}")
+    logger.info(f"API key present: {bool(CLOUDINARY_API_KEY)}")
 else:
     logger.warning("⚠️ Ключи Cloudinary не настроены. Загрузка фото будет невозможна.")
+    logger.warning(f"Проверьте переменные окружения:")
+    logger.warning(f"CLOUDINARY_CLOUD_NAME: {CLOUDINARY_CLOUD_NAME}")
+    logger.warning(f"CLOUDINARY_API_KEY: {CLOUDINARY_API_KEY}")
+    logger.warning(f"CLOUDINARY_API_SECRET: {CLOUDINARY_API_SECRET}")
 
 # =================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===================
 def get_current_datetime():
@@ -79,7 +85,7 @@ def create_status_keyboard():
 def format_number_for_sheets(number):
     """Форматирует число для записи в Google Таблицы (с запятой вместо точки)"""
     if isinstance(number, (int, float)):
-        # Преобразуем число в строку с заменой точки на запятую
+        # Преобразуем число в строку с заменой точки на запятой
         return str(number).replace('.', ',')
     return str(number)
 
@@ -133,18 +139,21 @@ def upload_to_cloudinary(file_bytes, filename, username):
         result = cloudinary.uploader.upload(
             file_bytes,
             public_id=public_id,
-            folder="telegram_bot"
+            folder="telegram_bot",
+            resource_type="auto"  # Автоматически определяем тип ресурса
         )
         
         # Возвращаем URL файла
         file_url = result.get('secure_url')
         if file_url:
+            logger.info(f"Фото успешно загружено на Cloudinary: {file_url}")
             return file_url, None
         else:
+            logger.error("Cloudinary не вернул URL")
             return None, "Cloudinary не вернул URL"
             
     except Exception as e:
-        logger.error(f"Ошибка загрузки на Cloudinary: {e}")
+        logger.error(f"Ошибка загрузки на Cloudinary: {e}", exc_info=True)
         return None, str(e)
 
 # =================== ОБРАБОТЧИКИ TELEGRAM КОМАНД ===================
@@ -278,7 +287,7 @@ def handle_text(message):
         next_row = len(all_values) + 1
         
         # Подготавливаем данные для записи
-        # Используем функцию форматирования для замены точки на запятую
+        # Используем функцию форматирования для замены точки на запятой
         amount_formatted = format_number_for_sheets(amount)
         
         data_to_write = [
@@ -340,7 +349,7 @@ def handle_photo(message):
             bot.edit_message_text(
                 chat_id=message.chat.id,
                 message_id=processing_msg.message_id,
-                text="✅ Фото получено, но не удалось загрузить в облако."
+                text=f"✅ Фото получено, но не удалось загрузить в облако.\nОшибка: {error[:50]}..."
             )
             # Отправляем клавиатуру отдельным сообщением
             bot.send_message(message.chat.id, "Попробуйте еще раз.", reply_markup=create_status_keyboard())
