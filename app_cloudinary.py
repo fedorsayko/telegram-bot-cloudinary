@@ -11,36 +11,29 @@ import cloudinary
 import cloudinary.uploader
 import cloudinary.api
 
-# =================== НАСТРОЙКИ ===================
+# =================== НАСТРОЙКИ ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ===================
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 GOOGLE_SHEETS_KEY = os.environ.get('GOOGLE_SHEETS_KEY')
 TIMEZONE_OFFSET = int(os.environ.get('TIMEZONE_OFFSET', 3))
 GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_CREDENTIALS_JSON')
 
-# Cloudinary конфигурация (получаем из переменных окружения Render)
+# Ключи Cloudinary
 CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME')
 CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY')
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET')
-
-# Проверка наличия критических переменных
-if not all([TELEGRAM_TOKEN, GOOGLE_SHEETS_KEY, GOOGLE_CREDENTIALS_JSON]):
-    raise ValueError("❌ Отсутствуют обязательные переменные: TELEGRAM_TOKEN, GOOGLE_SHEETS_KEY, GOOGLE_CREDENTIALS_JSON")
-
-if not all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
-    print("⚠️  Предупреждение: Не настроены переменные Cloudinary. Загрузка фото будет невозможна.")
 
 # Инициализация бота и Flask
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
 
-# Настройка логирования
+# =================== НАСТРОЙКА ЛОГИРОВАНИЯ ===================
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Настройка Cloudinary (если все ключи есть)
+# =================== НАСТРОЙКА CLOUDINARY ===================
 if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
     cloudinary.config(
         cloud_name=CLOUDINARY_CLOUD_NAME,
@@ -48,9 +41,9 @@ if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
         api_secret=CLOUDINARY_API_SECRET,
         secure=True
     )
-    logger.info("✅ Cloudinary настроен")
+    logger.info("✅ Cloudinary настроен успешно")
 else:
-    logger.warning("❌ Cloudinary не настроен. Фото загружаться не будут.")
+    logger.warning("⚠️ Ключи Cloudinary не настроены. Загрузка фото будет невозможна.")
 
 # =================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===================
 def get_current_datetime():
@@ -64,7 +57,7 @@ def get_current_datetime():
     return date_str, time_str, display_time
 
 def get_username(user):
-    """Получение имени пользователя для записи"""
+    """Получение имени пользователя"""
     if user.username:
         return f"@{user.username}"
     elif user.first_name:
@@ -77,8 +70,11 @@ def get_username(user):
 
 # =================== GOOGLE SHEETS ФУНКЦИИ ===================
 def get_google_credentials():
-    """Создание учетных данных Google из JSON строки"""
+    """Создание учетных данных Google"""
     try:
+        if not GOOGLE_CREDENTIALS_JSON:
+            raise ValueError("GOOGLE_CREDENTIALS_JSON не установлен")
+        
         creds_dict = json.loads(GOOGLE_CREDENTIALS_JSON)
         credentials = ServiceAccountCredentials.from_json_keyfile_dict(
             creds_dict,
@@ -108,52 +104,51 @@ def connect_to_sheets():
         return None
 
 # =================== CLOUDINARY ФУНКЦИИ ===================
-def upload_to_cloudinary(file_bytes, user_filename):
+def upload_to_cloudinary(file_bytes, filename, username):
     """Загрузка файла на Cloudinary"""
     try:
         if not all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]):
             return None, "Cloudinary не настроен"
         
-        # Загружаем файл в Cloudinary
-        # folder="telegram_bot" создаст папку в интерфейсе Cloudinary
+        # Создаем уникальное имя файла с именем пользователя
+        safe_username = username.replace('@', '').replace('.', '_').replace(' ', '_')
+        public_id = f"telegram_bot/{safe_username}_{filename}"
+        
+        # Загружаем файл
         result = cloudinary.uploader.upload(
             file_bytes,
-            public_id=f"telegram_bot/{user_filename}",
+            public_id=public_id,
             folder="telegram_bot"
         )
         
-        # secure_url - HTTPS ссылка на файл
+        # Возвращаем URL файла
         file_url = result.get('secure_url')
-        if not file_url:
+        if file_url:
+            return file_url, None
+        else:
             return None, "Cloudinary не вернул URL"
             
-        return file_url, None
-        
     except Exception as e:
         logger.error(f"Ошибка загрузки на Cloudinary: {e}")
         return None, str(e)
 
-# =================== ОБРАБОТЧИКИ TELEGRAM ===================
+# =================== ОБРАБОТЧИКИ TELEGRAM КОМАНД ===================
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     """Обработка команды /start"""
     welcome_text = """
-👋 Привет! Я бот для учета расходов и документов.
+👋 Привет! Я бот для учета расходов и фото.
 
 📝 **Что я умею:**
+1. 📊 Записывать расходы: <сумма> <категория>
+   Пример: 1500 продукты
+2. 📸 Сохранять фото в облако
+3. 📁 Хранить ссылки на все файлы в таблице
 
-1. 📊 **Записывать расходы** (текст)
-   Формат: <сумма> <категория>
-   Пример: `1500 продукты`
-
-2. 📸 **Сохранять фото** 
-   Просто отправь фото - оно сохранится в облаке
-
-3. 📄 **Сохранять документы** (скоро)
-
-💡 **Подсказки:**
-/help - подробная справка
-/status - проверить работу
+💡 **Доступные команды:**
+/start - это сообщение
+/help - справка по использованию
+/status - проверить статус бота
 """
     bot.reply_to(message, welcome_text)
     logger.info(f"Пользователь {message.from_user.id} запустил бота")
@@ -165,21 +160,16 @@ def handle_help(message):
 📚 **Справка по использованию:**
 
 💰 **Для записи расходов:**
-`<сумма> <категория>`
-Пример: `1500 продукты`, `250 такси`
+<сумма> <категория>
+Пример: 1500 продукты, 250 такси
 
 🖼️ **Для загрузки фото:**
-Просто отправьте фотографию (любого формата)
+Просто отправьте фотографию любого формата
 
-📁 **Файлы сохраняются:**
-- В облачном хранилище Cloudinary
-- Название: `Имя_Дата_Время.jpg`
-- Ссылка сохраняется в таблицу
-
-🔧 **Команды:**
-/start - начать
-/help - эта справка  
-/status - проверить статус
+📊 **Данные сохраняются:**
+• Расходы - в Google Таблицу
+• Фото - в Cloudinary
+• Ссылки на фото - в таблицу
 """
     bot.reply_to(message, help_text)
 
@@ -188,62 +178,84 @@ def handle_status(message):
     """Проверка статуса бота"""
     try:
         date_str, _, display_time = get_current_datetime()
-        sheets_status = "✅" if connect_to_sheets() else "❌"
-        cloudinary_status = "✅" if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]) else "❌"
+        
+        # Проверяем подключения
+        sheets_connected = "✅" if connect_to_sheets() else "❌"
+        cloudinary_connected = "✅" if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]) else "❌"
         
         status_text = f"""
 🤖 **Статус бота:**
 
-✅ Бот работает
+🟢 Бот активен
 📅 Дата: {date_str}
 ⏰ Время: {display_time}
 🌍 Часовой пояс: UTC+{TIMEZONE_OFFSET}
 
-📊 **Google Таблицы:** {sheets_status}
-☁️ **Cloudinary:** {cloudinary_status}
+🔗 **Подключения:**
+📊 Google Таблицы: {sheets_connected}
+☁️ Cloudinary: {cloudinary_connected}
+
+💬 Бот готов к работе!
 """
         bot.reply_to(message, status_text)
+        logger.info(f"Пользователь {message.from_user.id} запросил статус")
+        
     except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка при проверке статуса: {e}")
+        error_msg = f"❌ Ошибка при проверке статуса: {str(e)}"
+        bot.reply_to(message, error_msg)
+        logger.error(f"Ошибка в handle_status: {e}")
 
+# =================== ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ (РАСХОДЫ) ===================
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
-    """Обработка текстовых сообщений с расходами"""
+    """Обработка сообщений с расходами"""
     try:
         text = message.text.strip()
         
+        # Игнорируем команды
         if text.startswith('/'):
             return
         
+        # Разделяем сумму и категорию
         parts = text.split(' ', 1)
         
         if len(parts) != 2:
-            bot.reply_to(message, "❌ Формат: <сумма> <категория>\nПример: `1500 продукты`")
+            error_msg = "❌ Неправильный формат.\n\nИспользуйте: <сумма> <категория>\nПример: 1500 продукты"
+            bot.reply_to(message, error_msg)
             return
         
         amount_str, category = parts
         
+        # Проверяем и преобразуем сумму
         try:
             amount_str = amount_str.replace(',', '.')
             amount = float(amount_str)
+            
             if amount <= 0:
-                raise ValueError
-        except:
-            bot.reply_to(message, "❌ Сумма должна быть положительным числом")
+                raise ValueError("Сумма должна быть больше 0")
+                
+        except ValueError:
+            error_msg = "❌ Сумма должна быть положительным числом.\nПример: 1500 или 1500.50"
+            bot.reply_to(message, error_msg)
             return
         
+        # Получаем данные пользователя
         user = message.from_user
         username = get_username(user)
         date_str, _, display_time = get_current_datetime()
         
+        # Подключаемся к Google Таблицам
         sheet = connect_to_sheets()
         if not sheet:
-            bot.reply_to(message, "❌ Ошибка подключения к таблице")
+            error_msg = "❌ Ошибка подключения к Google Таблицам"
+            bot.reply_to(message, error_msg)
             return
         
+        # Находим первую пустую строку
         all_values = sheet.get_all_values()
         next_row = len(all_values) + 1
         
+        # Подготавливаем данные для записи
         data_to_write = [
             username,
             date_str,
@@ -251,99 +263,120 @@ def handle_text(message):
             category.strip()
         ]
         
+        # Записываем данные в таблицу
         sheet.update(f'A{next_row}:D{next_row}', [data_to_write])
         
+        # Формируем ответ пользователю
         response = f"""
-✅ **Расход записан!**
+✅ **Расход успешно записан!**
 
 👤 Пользователь: {username}
 📅 Дата: {date_str}
 💰 Сумма: {amount}
 🏷️ Категория: {category}
 ⏰ Время: {display_time}
+
+Данные сохранены в Google Таблицу.
 """
         bot.reply_to(message, response)
-        logger.info(f"Расход записан: {username} - {amount} - {category}")
+        logger.info(f"✅ Расход записан: {username} - {amount} - {category}")
         
     except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка: {str(e)}")
+        error_msg = f"❌ Произошла ошибка: {str(e)}\n\nПопробуйте еще раз."
+        bot.reply_to(message, error_msg)
         logger.error(f"Ошибка обработки текста: {e}")
 
+# =================== ОБРАБОТКА ФОТОГРАФИЙ ===================
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     """Обработка фотографий для Cloudinary"""
     try:
         # Отправляем быстрый ответ
-        msg = bot.reply_to(message, "🖼 Получил фото, обрабатываю...")
+        processing_msg = bot.reply_to(message, "🖼 Получил фото, начинаю обработку...")
         
+        # Получаем данные пользователя
         user = message.from_user
         username = get_username(user)
         date_str, time_str, display_time = get_current_datetime()
         
-        # Получаем фото (наибольшее доступное качество)
+        # Получаем фото наилучшего качества
         file_id = message.photo[-1].file_id
         file_info = bot.get_file(file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
         # Создаем имя файла
-        filename = f"{username}_{date_str}_{time_str}.jpg"
-        # Заменяем символы, которые могут вызвать проблемы
-        safe_filename = filename.replace('@', '').replace('.', '_').replace(':', '_').replace(' ', '_')
+        filename = f"{date_str}_{time_str}.jpg"
         
         # Загружаем на Cloudinary
-        file_url, error = upload_to_cloudinary(downloaded_file, safe_filename)
+        file_url, error = upload_to_cloudinary(downloaded_file, filename, username)
         
         if error:
-            logger.error(f"Ошибка загрузки фото в Cloudinary: {error}")
+            logger.error(f"Ошибка загрузки фото: {error}")
             bot.edit_message_text(
                 chat_id=message.chat.id,
-                message_id=msg.message_id,
+                message_id=processing_msg.message_id,
                 text="✅ Фото получено, но не удалось загрузить в облако."
             )
             return
         
-        # Записываем информацию в таблицу Google Sheets
+        # Сохраняем информацию в Google Таблицу
         sheet = connect_to_sheets()
         if sheet:
             try:
+                # Проверяем заголовки
+                headers = sheet.row_values(1)
+                if len(headers) < 5:
+                    sheet.update('E1', [['Ссылка на файл']])
+                
+                # Находим пустую строку
                 all_values = sheet.get_all_values()
                 next_row = len(all_values) + 1
                 
-                # Проверяем, есть ли колонка для ссылок (колонка E)
-                if len(sheet.row_values(1)) < 5:
-                    sheet.update('E1', [['Ссылка на файл']])
-                
+                # Записываем данные
                 data_to_write = [
                     username,
                     date_str,
                     "ФОТО",
-                    safe_filename,
+                    filename,
                     file_url
                 ]
                 
                 sheet.update(f'A{next_row}:E{next_row}', [data_to_write])
-                logger.info(f"Информация о фото записана в таблицу: {safe_filename}")
+                logger.info(f"Информация о фото записана в таблицу: {filename}")
+                
             except Exception as e:
-                logger.warning(f"Не удалось записать в таблицу: {e}")
+                logger.warning(f"Не удалось записать в таблицу (но фото загружено): {e}")
         
-        # Отправляем финальный ответ пользователю
-        response = f"✅ Фото сохранено в облако!\n📁 Файл: {safe_filename}\n🔗 Ссылка: {file_url}"
-            
+        # Отправляем финальный ответ
+        success_msg = f"""
+✅ Фото успешно загружено!
+
+👤 Пользователь: {username}
+📅 Дата: {date_str}
+🖼 Файл: {filename}
+🔗 Ссылка: {file_url}
+⏰ Время: {display_time}
+
+Фото доступно по ссылке выше.
+"""
+        
         bot.edit_message_text(
             chat_id=message.chat.id,
-            message_id=msg.message_id,
-            text=response
+            message_id=processing_msg.message_id,
+            text=success_msg
         )
-        logger.info(f"Фото успешно обработано: {safe_filename}")
+        logger.info(f"Фото успешно обработано: {filename}")
         
     except Exception as e:
         logger.error(f"Критическая ошибка в handle_photo: {e}", exc_info=True)
+        
+        # Пытаемся отправить сообщение об ошибке
         try:
             bot.reply_to(message, "❌ Не удалось обработать фото. Попробуйте еще раз.")
         except:
             pass
 
-# =================== FLASK РОУТЫ ===================
+# =================== FLASK РОУТЫ ДЛЯ WEBHOOK ===================
 @app.route('/')
 def home():
     """Главная страница для проверки работы сервиса"""
@@ -351,95 +384,218 @@ def home():
 <!DOCTYPE html>
 <html>
 <head>
-    <title>🤖 Бот учета расходов и фото</title>
+    <title>🤖 Telegram Бот для учета расходов</title>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: auto; }
-        .card { background: #f5f5f5; padding: 20px; border-radius: 10px; margin: 20px 0; }
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .status {
+            background: #4CAF50;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .feature {
+            background: #e8f5e9;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border-left: 4px solid #4CAF50;
+        }
+        code {
+            background: #f1f1f1;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
     </style>
 </head>
 <body>
-    <h1>🤖 Telegram Бот для расходов и фото</h1>
-    
-    <div class="card">
-        <h2>✅ Сервис работает</h2>
-        <p>Бот готов принимать:</p>
-        <ul>
-            <li>📝 Записи расходов</li>
-            <li>📸 Фотографии (сохраняются в Cloudinary)</li>
-        </ul>
+    <div class="container">
+        <h1>🤖 Telegram Бот для учета расходов и фото</h1>
+        
+        <div class="status">
+            <h2>✅ Сервис работает нормально</h2>
+            <p>Бот готов принимать сообщения через Telegram</p>
+        </div>
+        
+        <div class="feature">
+            <h3>📝 Запись расходов</h3>
+            <p>Формат: <code>&lt;сумма&gt; &lt;категория&gt;</code></p>
+            <p>Пример: <code>1500 продукты</code></p>
+        </div>
+        
+        <div class="feature">
+            <h3>📸 Загрузка фото</h3>
+            <p>Просто отправьте фото боту — оно сохранится в облаке</p>
+        </div>
+        
+        <div class="feature">
+            <h3>📊 Хранение данных</h3>
+            <p>• Расходы сохраняются в Google Таблицы</p>
+            <p>• Фото загружаются в Cloudinary</p>
+            <p>• Ссылки на фото хранятся в таблице</p>
+        </div>
+        
+        <p style="text-align: center; margin-top: 30px;">
+            <a href="/health">Проверить здоровье сервиса</a> | 
+            <a href="/set_webhook">Настроить вебхук</a>
+        </p>
     </div>
-    
-    <div class="card">
-        <h3>📊 Формат записи расходов:</h3>
-        <code>&lt;сумма&gt; &lt;категория&gt;</code>
-        <p>Пример: <code>1500 продукты</code></p>
-    </div>
-    
-    <p><a href="/health">Проверить здоровье сервиса</a></p>
 </body>
 </html>
 """
 
 @app.route('/health')
 def health_check():
-    """Endpoint для проверки здоровья сервиса"""
-    return {"status": "healthy", "service": "telegram-bot-cloudinary"}, 200
+    """Проверка здоровья сервиса"""
+    return {
+        "status": "healthy",
+        "service": "telegram-bot-cloudinary",
+        "timestamp": datetime.utcnow().isoformat()
+    }, 200
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """Основной endpoint для вебхуков от Telegram"""
     if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return 'OK', 200
+        try:
+            # Получаем обновление от Telegram
+            json_string = request.get_data().decode('utf-8')
+            update = telebot.types.Update.de_json(json_string)
+            
+            # Обрабатываем обновление
+            bot.process_new_updates([update])
+            
+            logger.info("✅ Webhook успешно обработан")
+            return 'OK', 200
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка обработки webhook: {e}")
+            return 'Error', 500
     else:
+        logger.warning("❌ Неверный content-type в webhook")
         return 'Bad Request', 400
 
 @app.route('/set_webhook', methods=['GET'])
 def set_webhook_manual():
-    """Ручная установка вебхука (для отладки)"""
-    # В Render обычно есть переменная RENDER_EXTERNAL_URL
-    render_external_url = os.environ.get('RENDER_EXTERNAL_URL', '')
+    """Страница для ручной настройки вебхука"""
+    # Получаем текущий URL сервиса
+    service_url = os.environ.get('RENDER_EXTERNAL_URL', '')
     
-    if not render_external_url:
-        return """
-        <h1>⚠️ URL сервиса не определен</h1>
-        <p>Установите переменную окружения RENDER_EXTERNAL_URL или используйте команду в браузере:</p>
-        <code>https://api.telegram.org/botВАШ_ТОКЕН/setWebhook?url=https://ВАШ_СЕРВИС.onrender.com/webhook</code>
-        <p><a href="/">Вернуться на главную</a></p>
-        """, 400
+    if not service_url:
+        # Пытаемся определить URL автоматически
+        service_url = request.host_url.rstrip('/')
+    
+    webhook_url = f"{service_url}/webhook"
     
     try:
-        webhook_url = f"{render_external_url}/webhook"
+        # Устанавливаем вебхук
         bot.remove_webhook()
-        success = bot.set_webhook(url=webhook_url)
+        bot.set_webhook(url=webhook_url)
         
-        if success:
-            return f"""
-            <h1>✅ Вебхук установлен!</h1>
-            <p>URL: {webhook_url}</p>
-            <p>Статус: Активен</p>
-            <p><a href="/">Вернуться на главную</a></p>
-            """, 200
-        else:
-            return """
-            <h1>❌ Ошибка установки вебхука</h1>
-            <p><a href="/">Вернуться на главную</a></p>
-            """, 500
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Настройка вебхука</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; padding: 20px; }}
+                .success {{ background: #d4edda; color: #155724; padding: 20px; border-radius: 5px; }}
+                .info {{ background: #d1ecf1; color: #0c5460; padding: 15px; border-radius: 5px; margin: 20px 0; }}
+                code {{ background: #f8f9fa; padding: 5px; border-radius: 3px; }}
+            </style>
+        </head>
+        <body>
+            <h1>⚙️ Настройка вебхука Telegram</h1>
             
+            <div class="success">
+                <h2>✅ Вебхук успешно установлен!</h2>
+                <p><strong>URL вебхука:</strong></p>
+                <p><code>{webhook_url}</code></p>
+                <p>Теперь бот может получать сообщения от Telegram.</p>
+            </div>
+            
+            <div class="info">
+                <h3>🔧 Проверка вебхука</h3>
+                <p>Вы можете проверить статус вебхука командой:</p>
+                <p><code>https://api.telegram.org/bot[ВАШ_ТОКЕН]/getWebhookInfo</code></p>
+                <p>Если бот не отвечает, убедитесь что вебхук установлен корректно.</p>
+            </div>
+            
+            <p><a href="/">Вернуться на главную</a></p>
+        </body>
+        </html>
+        """, 200
+        
     except Exception as e:
         return f"""
-        <h1>❌ Ошибка установки вебхука</h1>
-        <p>Ошибка: {str(e)}</p>
-        <p><a href="/">Вернуться на главную</a></p>
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Ошибка настройки вебхука</title>
+        </head>
+        <body>
+            <h1>❌ Ошибка настройки вебхука</h1>
+            <p><strong>Ошибка:</strong> {str(e)}</p>
+            <p><strong>Webhook URL:</strong> {webhook_url}</p>
+            <p>Попробуйте установить вебхук вручную через браузер:</p>
+            <p><code>https://api.telegram.org/bot[ВАШ_ТОКЕН]/setWebhook?url={webhook_url}</code></p>
+            <p><a href="/">Вернуться на главную</a></p>
+        </body>
+        </html>
         """, 500
 
 # =================== ЗАПУСК ПРИЛОЖЕНИЯ ===================
 if __name__ == '__main__':
-    logger.info("🚀 Бот с загрузкой в Cloudinary запускается...")
+    # Проверяем наличие обязательных переменных окружения
+    required_vars = ['TELEGRAM_TOKEN', 'GOOGLE_SHEETS_KEY', 'GOOGLE_CREDENTIALS_JSON']
+    missing_vars = [var for var in required_vars if not os.environ.get(var)]
     
+    if missing_vars:
+        logger.error(f"❌ Отсутствуют обязательные переменные: {missing_vars}")
+        logger.error("Добавьте эти переменные в настройках Render")
+        exit(1)
+    
+    logger.info("=" * 50)
+    logger.info("🚀 Запуск Telegram бота с Cloudinary")
+    logger.info("=" * 50)
+    
+    # Пытаемся установить вебхук при запуске
+    try:
+        service_url = os.environ.get('RENDER_EXTERNAL_URL', '')
+        if service_url:
+            webhook_url = f"{service_url}/webhook"
+            bot.remove_webhook()
+            bot.set_webhook(url=webhook_url)
+            logger.info(f"✅ Вебхук установлен: {webhook_url}")
+    except Exception as e:
+        logger.warning(f"⚠️ Не удалось установить вебхук автоматически: {e}")
+        logger.info("ℹ️ Вы можете установить вебхук вручную через /set_webhook")
+    
+    # Запускаем Flask приложение
     port = int(os.environ.get('PORT', 10000))
-    logger.info(f"📡 Сервер запускается на порту {port}")
+    logger.info(f"🌐 Сервер запускается на порту {port}")
     
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(
+        host='0.0.0.0',
+        port=port,
+        debug=False
+    )
