@@ -76,6 +76,13 @@ def create_status_keyboard():
     markup.add(status_button)
     return markup
 
+def format_number_for_sheets(number):
+    """Форматирует число для записи в Google Таблицы (с запятой вместо точки)"""
+    if isinstance(number, (int, float)):
+        # Преобразуем число в строку с заменой точки на запятую
+        return str(number).replace('.', ',')
+    return str(number)
+
 # =================== GOOGLE SHEETS ФУНКЦИИ ===================
 def get_google_credentials():
     """Создание учетных данных Google"""
@@ -250,7 +257,7 @@ def handle_text(message):
                 raise ValueError("Сумма должна быть больше 0")
                 
         except ValueError:
-            error_msg = "❌ Сумма должна быть положительным числом.\nПример: 1500 или 1500.50"
+            error_msg = "❌ Сумма должна быть положительным числом.\nПример: 1500 или 1500,50"
             bot.reply_to(message, error_msg, reply_markup=create_status_keyboard())
             return
         
@@ -271,10 +278,13 @@ def handle_text(message):
         next_row = len(all_values) + 1
         
         # Подготавливаем данные для записи
+        # Используем функцию форматирования для замены точки на запятую
+        amount_formatted = format_number_for_sheets(amount)
+        
         data_to_write = [
             username,
             date_str,
-            str(amount),
+            amount_formatted,  # Отформатированная сумма с запятой
             category.strip()
         ]
         
@@ -287,14 +297,14 @@ def handle_text(message):
 
 👤 Пользователь: {username}
 📅 Дата: {date_str}
-💰 Сумма: {amount}
+💰 Сумма: {amount_formatted}
 🏷️ Категория: {category}
 ⏰ Время: {display_time}
 
 Данные сохранены в Google Таблицу.
 """
         bot.reply_to(message, response, reply_markup=create_status_keyboard())
-        logger.info(f"✅ Расход записан: {username} - {amount} - {category}")
+        logger.info(f"✅ Расход записан: {username} - {amount_formatted} - {category}")
         
     except Exception as e:
         error_msg = f"❌ Произошла ошибка: {str(e)}\n\nПопробуйте еще раз."
@@ -352,13 +362,13 @@ def handle_photo(message):
                 # ЗАПИСЫВАЕМ ДАННЫЕ В ТАБЛИЦУ:
                 # 1) Имя пользователя
                 # 2) Дата
-                # 3) Сумма = 0
+                # 3) Сумма = 0 (с запятой)
                 # 4) Категория = название файла
                 # 5) Ссылка на файл
                 data_to_write = [
                     username,
                     date_str,
-                    "0",          # Сумма = 0
+                    "0",          # Сумма = 0 (целое число, запятая не нужна)
                     filename,     # Категория = название файла
                     file_url
                 ]
