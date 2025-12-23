@@ -20,7 +20,7 @@ GOOGLE_CREDENTIALS_JSON = os.environ.get('GOOGLE_CREDENTIALS_JSON')
 
 # Ключи Cloudinary
 CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME')
-CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY')
+CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_SECRET')
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET')
 
 # Инициализация бота и Flask
@@ -362,14 +362,14 @@ def handle_photo(message):
                 # ЗАПИСЫВАЕМ ДАННЫЕ В ТАБЛИЦУ:
                 # 1) Имя пользователя
                 # 2) Дата
-                # 3) Сумма = 0 (с запятой)
+                # 3) Сумма = 0 (как ЧИСЛО, а не строка)
                 # 4) Категория = название файла
                 # 5) Ссылка на файл
                 data_to_write = [
                     username,
                     date_str,
-                    "0",          # Сумма = 0 (целое число, запятая не нужна)
-                    filename,     # Категория = название файла
+                    0,          # Сумма = 0 (записываем как число, а не строку)
+                    filename,   # Категория = название файла
                     file_url
                 ]
                 
