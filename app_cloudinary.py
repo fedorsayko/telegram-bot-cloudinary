@@ -258,9 +258,6 @@ def handle_status(message):
     try:
         _, date_str, _, display_time = get_current_datetime()
         
-        # Отправляем сообщение о начале проверки
-        status_msg = bot.reply_to(message, "🔄 Проверяю статус...")
-        
         # Проверяем наличие переменных окружения
         google_sheets_vars = "✅" if (GOOGLE_SHEETS_KEY and GOOGLE_CREDENTIALS_JSON) else "❌"
         cloudinary_vars = "✅" if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]) else "❌"
@@ -286,10 +283,9 @@ def handle_status(message):
 
 💬 Бот готов к работе!
 """
-        # Редактируем сообщение со статусом
-        bot.edit_message_text(
+        # Отправляем новое сообщение со статусом
+        bot.send_message(
             chat_id=message.chat.id,
-            message_id=status_msg.message_id,
             text=status_text,
             reply_markup=create_status_keyboard()
         )
@@ -297,7 +293,7 @@ def handle_status(message):
         
     except Exception as e:
         error_msg = f"❌ Ошибка при проверке статуса: {str(e)[:100]}"
-        bot.reply_to(message, error_msg, reply_markup=create_status_keyboard())
+        bot.send_message(message.chat.id, error_msg, reply_markup=create_status_keyboard())
         logger.error(f"Ошибка в handle_status: {e}")
 
 # =================== ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ (РАСХОДЫ) ===================
@@ -516,7 +512,7 @@ def handle_photo(message):
 
 Фото доступно по ссылке выше.
 """
-        # Редактируем сообщение без клавиатуры
+        # Редактируем сообщение без клавиатуры (это исправляет ошибку 400)
         bot.edit_message_text(
             chat_id=message.chat.id,
             message_id=processing_msg.message_id,
