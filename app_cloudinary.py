@@ -11,6 +11,7 @@ import cloudinary
 import cloudinary.uploader
 import cloudinary.api
 from telebot import types  # Импорт types в начале файла
+import time
 
 # =================== НАСТРОЙКИ ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ===================
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
@@ -126,6 +127,29 @@ def connect_to_sheets():
         logger.error(f"Ошибка подключения к Google Таблицам: {e}")
         return None
 
+def test_google_sheets_connection():
+    """Проверка соединения с Google Sheets с таймаутом"""
+    try:
+        # Устанавливаем таймаут для тестового соединения
+        start_time = time.time()
+        sheet = connect_to_sheets()
+        
+        if sheet:
+            # Пробуем прочитать заголовки таблицы (быстрая операция)
+            headers = sheet.row_values(1)
+            elapsed_time = time.time() - start_time
+            
+            if elapsed_time < 5:  # Если ответ получен менее чем за 5 секунд
+                return True, f"✅ (ответ за {elapsed_time:.2f}с)"
+            else:
+                return True, f"⚠️ (медленно, {elapsed_time:.2f}с)"
+        else:
+            return False, "❌ (ошибка подключения)"
+            
+    except Exception as e:
+        logger.error(f"Ошибка тестирования Google Sheets: {e}")
+        return False, f"❌ ({str(e)[:50]})"
+
 def format_cell_for_google_sheets(value):
     """
     Форматирует значение для записи в Google Таблицы.
@@ -234,10 +258,17 @@ def handle_status(message):
     try:
         _, date_str, _, display_time = get_current_datetime()
         
-        # Проверяем подключения
-        sheets_connected = "✅" if connect_to_sheets() else "❌"
-        cloudinary_connected = "✅" if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]) else "❌"
+        # Отправляем сообщение о начале проверки
+        status_msg = bot.reply_to(message, "🔄 Проверяю статус...")
         
+        # Проверяем наличие переменных окружения
+        google_sheets_vars = "✅" if (GOOGLE_SHEETS_KEY and GOOGLE_CREDENTIALS_JSON) else "❌"
+        cloudinary_vars = "✅" if all([CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET]) else "❌"
+        
+        # Проверяем соединение с Google Sheets (с таймаутом)
+        sheets_connected, sheets_msg = test_google_sheets_connection()
+        
+        # Формируем статус
         status_text = f"""
 🤖 **Статус бота:**
 
@@ -246,18 +277,27 @@ def handle_status(message):
 ⏰ Время: {display_time}
 🌍 Часовой пояс: UTC+{TIMEZONE_OFFSET}
 
-🔗 **Подключения:**
-📊 Google Таблицы: {sheets_connected}
-☁️ Cloudinary: {cloudinary_connected}
+🔧 **Настройки:**
+📊 Google Sheets переменные: {google_sheets_vars}
+☁️ Cloudinary переменные: {cloudinary_vars}
+
+🔗 **Соединения:**
+📊 Google Sheets: {sheets_msg}
 
 💬 Бот готов к работе!
 """
-        bot.reply_to(message, status_text, reply_markup=create_status_keyboard())
+        # Редактируем сообщение со статусом
+        bot.edit_message_text(
+            chat_id=message.chat.id,
+            message_id=status_msg.message_id,
+            text=status_text,
+            reply_markup=create_status_keyboard()
+        )
         logger.info(f"Пользователь {message.from_user.id} запросил статус")
         
     except Exception as e:
-        error_msg = f"❌ Ошибка при проверке статуса: {str(e)}"
-        bot.reply_to(message, error_msg)
+        error_msg = f"❌ Ошибка при проверке статуса: {str(e)[:100]}"
+        bot.reply_to(message, error_msg, reply_markup=create_status_keyboard())
         logger.error(f"Ошибка в handle_status: {e}")
 
 # =================== ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ (РАСХОДЫ) ===================
