@@ -58,11 +58,11 @@ def get_current_datetime():
     utc_now = datetime.utcnow()
     time_delta = timedelta(hours=TIMEZONE_OFFSET)
     local_now = utc_now + time_delta
-    date_obj = local_now.date()  # Объект даты для Google Таблиц
-    date_str = local_now.strftime("%d.%m.%Y")  # Строка для отображения
+    date_str = local_now.strftime("%d.%m.%Y")  # Для отображения пользователю
+    date_iso = local_now.date().isoformat()    # ISO формат для Google Sheets
     time_str = local_now.strftime("%H_%M_%S")
     display_time = local_now.strftime("%H:%M")
-    return date_obj, date_str, time_str, display_time
+    return date_iso, date_str, time_str, display_time  # Возвращаем ISO дату первой
 
 def get_username(user):
     """Получение имени пользователя"""
@@ -297,7 +297,7 @@ def handle_text(message):
         # Получаем данные пользователя
         user = message.from_user
         username = get_username(user)
-        date_obj, date_str, _, display_time = get_current_datetime()
+        date_iso, date_str, _, display_time = get_current_datetime()
         
         # Подключаемся к Google Таблицам
         sheet = connect_to_sheets()
@@ -319,14 +319,14 @@ def handle_text(message):
         
         # ЗАПИСЫВАЕМ ДАННЫЕ В ТАБЛИЦУ:
         # 1) Имя пользователя
-        # 2) Дата (объект date) - теперь Google Таблицы распознают как дату
+        # 2) Дата в ISO формате (YYYY-MM-DD) - Google Sheets распознает как дату
         # 3) Время
         # 4) Сумма
         # 5) Категория
         data_to_write = [
             username,
-            date_obj,          # Используем объект date вместо строки
-            display_time,      # Время отправки данных
+            date_iso,           # Используем ISO формат даты
+            display_time,       # Время отправки данных
             amount_for_sheets,  # Передаем отформатированное значение для Google Таблиц
             category.strip()
         ]
@@ -344,7 +344,7 @@ def handle_text(message):
                 }
             })
             
-            # Устанавливаем формат даты (столбец B)
+            # Устанавливаем формат даты для столбца B
             sheet.format(f"B{next_row}", {
                 "numberFormat": {
                     "type": "DATE",
@@ -385,7 +385,7 @@ def handle_photo(message):
         # Получаем данные пользователя
         user = message.from_user
         username = get_username(user)
-        date_obj, date_str, time_str, display_time = get_current_datetime()
+        date_iso, date_str, time_str, display_time = get_current_datetime()
         
         # Получаем фото наилучшего качества
         file_id = message.photo[-1].file_id
@@ -424,17 +424,17 @@ def handle_photo(message):
                 
                 # ЗАПИСЫВАЕМ ДАННЫЕ В ТАБЛИЦУ:
                 # 1) Имя пользователя
-                # 2) Дата (объект date) - теперь Google Таблицы распознают как дату
+                # 2) Дата в ISO формате (YYYY-MM-DD) - Google Sheets распознает как дату
                 # 3) Время
                 # 4) Сумма = 0 (как ЧИСЛО, а не строка)
                 # 5) Категория = "фото"
                 # 6) Ссылка на файл
                 data_to_write = [
                     username,
-                    date_obj,      # Используем объект date вместо строки
-                    display_time,   # Время отправки фото
-                    0,              # Сумма = 0 (записываем как число, а не строку)
-                    "фото",         # Категория = "фото"
+                    date_iso,        # Используем ISO формат даты
+                    display_time,    # Время отправки фото
+                    0,               # Сумма = 0 (записываем как число, а не строку)
+                    "фото",          # Категория = "фото"
                     file_url
                 ]
                 
@@ -449,7 +449,7 @@ def handle_photo(message):
                         }
                     })
                     
-                    # Устанавливаем формат даты (столбец B)
+                    # Устанавливаем формат даты для столбца B
                     sheet.format(f"B{next_row}", {
                         "numberFormat": {
                             "type": "DATE",
