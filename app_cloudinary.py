@@ -12,7 +12,7 @@ from telebot import types, apihelper
 import time
 
 # =================== НАСТРОЙКИ ТАЙМАУТОВ ===================
-# Увеличиваем время ожидания ответа от API Telegram до 60 секунд
+# Увеличиваем время ожидания, чтобы избежать ошибок HTTPSConnectionPool
 apihelper.CONNECT_TIMEOUT = 60
 apihelper.READ_TIMEOUT = 60
 
@@ -26,6 +26,7 @@ CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME')
 CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY')
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET')
 
+# threaded=True позволяет обрабатывать запросы в фоне, не блокируя Webhook
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=True)
 app = Flask(__name__)
 
@@ -80,7 +81,11 @@ def connect_to_sheets():
 # =================== ОБРАБОТЧИКИ ===================
 @bot.message_handler(commands=['start'])
 def handle_start(message):
-    bot.send_message(message.chat.id, "📊 Бот готов к работе.\nПример: `150 Кофе` или отправьте фото.", reply_markup=create_status_keyboard())
+    bot.send_message(
+        message.chat.id, 
+        "📊 Бот готов к работе.\nПример: `150 Кофе` или отправьте фото.", 
+        reply_markup=create_status_keyboard()
+    )
 
 @bot.message_handler(func=lambda message: message.text == 'Проверить статус')
 def handle_status(message):
@@ -105,7 +110,7 @@ def handle_text(message):
         sheet = connect_to_sheets()
         
         if sheet:
-            # Быстрая вставка строки в конец таблицы
+            # Использование append_row вместо update исключает лишние запросы и таймауты
             row = [get_username(message.from_user), date_iso, display_time, amount, category]
             sheet.append_row(row, value_input_option='USER_ENTERED')
             bot.reply_to(message, f"✅ Записано: {amount} в {category}")
@@ -125,11 +130,9 @@ def handle_photo(message):
         date_iso, date_str, time_str, display_time = get_current_datetime()
         username = get_username(message.from_user)
         
-        # Скачивание самого качественного фото
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
-        # Загрузка в Cloudinary
         public_id = f"{username}_{date_str}_{time_str}".replace('@', '')
         upload_result = cloudinary.uploader.upload(
             downloaded_file, 
@@ -138,14 +141,13 @@ def handle_photo(message):
         )
         file_url = upload_result.get('secure_url')
 
-        # Запись в таблицу
         sheet = connect_to_sheets()
         if sheet:
             row = [username, date_iso, display_time, 0, "фото", file_url]
             sheet.append_row(row, value_input_option='USER_ENTERED')
             bot.edit_message_text(f"✅ Фото сохранено!\n🔗 {file_url}", message.chat.id, processing_msg.message_id)
         else:
-            bot.edit_message_text("❌ Фото в облаке, но ошибка в Sheets", message.chat.id, processing_msg.message_id)
+            bot.edit_message_text("❌ Ошибка записи в таблицу", message.chat.id, processing_msg.message_id)
             
     except Exception as e:
         logger.error(f"Ошибка фото: {e}")
@@ -157,13 +159,22 @@ def webhook():
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
+        
+        # Сначала запускаем обработку обновления в фоне
         bot.process_new_updates([update])
+        
+        # Моментально отвечаем 200 OK, чтобы Telegram не дублировал сообщения
         return 'OK', 200
     return 'Error', 400
 
 @app.route('/')
-def home(): return "Bot is running", 200
+def home(): 
+    return "Bot is running", 200
 
 if __name__ == '__main__':
+    # Очистка старых вебхуков при перезапуске
+    bot.remove_webhook()
+    time.sleep(1)
+    
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
