@@ -12,7 +12,6 @@ from telebot import types, apihelper
 import time
 
 # =================== НАСТРОЙКИ ТАЙМАУТОВ ===================
-# Увеличиваем время ожидания, чтобы избежать ошибок HTTPSConnectionPool
 apihelper.CONNECT_TIMEOUT = 60
 apihelper.READ_TIMEOUT = 60
 
@@ -26,7 +25,6 @@ CLOUDINARY_CLOUD_NAME = os.environ.get('CLOUDINARY_CLOUD_NAME')
 CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY')
 CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET')
 
-# threaded=True позволяет обрабатывать запросы в фоне, не блокируя Webhook
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=True)
 app = Flask(__name__)
 
@@ -110,7 +108,6 @@ def handle_text(message):
         sheet = connect_to_sheets()
         
         if sheet:
-            # Использование append_row вместо update исключает лишние запросы и таймауты
             row = [get_username(message.from_user), date_iso, display_time, amount, category]
             sheet.append_row(row, value_input_option='USER_ENTERED')
             bot.reply_to(message, f"✅ Записано: {amount} в {category}")
@@ -159,11 +156,7 @@ def webhook():
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
-        
-        # Сначала запускаем обработку обновления в фоне
         bot.process_new_updates([update])
-        
-        # Моментально отвечаем 200 OK, чтобы Telegram не дублировал сообщения
         return 'OK', 200
     return 'Error', 400
 
@@ -171,10 +164,21 @@ def webhook():
 def home(): 
     return "Bot is running", 200
 
+# =================== ЗАПУСК (СПОСОБ №1) ===================
 if __name__ == '__main__':
-    # Очистка старых вебхуков при перезапуске
+    # 1. Очищаем старые настройки
     bot.remove_webhook()
     time.sleep(1)
     
+    # 2. Устанавливаем новый Webhook автоматически
+    render_url = os.environ.get('RENDER_EXTERNAL_URL')
+    if render_url:
+        webhook_url = f"{render_url}/webhook"
+        bot.set_webhook(url=webhook_url)
+        logger.info(f"✅ Webhook успешно установлен на: {webhook_url}")
+    else:
+        logger.error("❌ Ошибка: Переменная RENDER_EXTERNAL_URL не найдена в настройках!")
+
+    # 3. Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
