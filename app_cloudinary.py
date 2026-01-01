@@ -57,11 +57,6 @@ def get_username(user):
     if user.username: return f"@{user.username}"
     return f"{user.first_name} {user.last_name or ''}".strip() or f"id_{user.id}"
 
-def create_status_keyboard():
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(types.KeyboardButton('Проверить статус'))
-    return markup
-
 # =================== GOOGLE SHEETS ФУНКЦИИ ===================
 def connect_to_sheets():
     try:
@@ -79,22 +74,15 @@ def connect_to_sheets():
 # =================== ОБРАБОТЧИКИ ===================
 @bot.message_handler(commands=['start'])
 def handle_start(message):
+    # Удаляем все кнопки и подсказки интерфейса
     bot.send_message(
         message.chat.id, 
         "📊 Бот готов к работе.\nПример: `150 Кофе` или отправьте фото.", 
-        reply_markup=create_status_keyboard()
+        reply_markup=types.ReplyKeyboardRemove()
     )
-
-@bot.message_handler(func=lambda message: message.text == 'Проверить статус')
-def handle_status(message):
-    _, date_str, _, display_time = get_current_datetime()
-    sheet = connect_to_sheets()
-    status = "✅ Ок" if sheet else "❌ Ошибка БД"
-    bot.send_message(message.chat.id, f"📅 {date_str} {display_time}\n📊 Sheets: {status}")
 
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
-    if message.text == 'Проверить статус': return
     try:
         parts = message.text.split(' ', 1)
         if len(parts) < 2:
@@ -144,7 +132,7 @@ def handle_photo(message):
             sheet.append_row(row, value_input_option='USER_ENTERED')
             bot.edit_message_text(f"✅ Фото сохранено!\n🔗 {file_url}", message.chat.id, processing_msg.message_id)
         else:
-            bot.edit_message_text("❌ Ошибка записи в таблицу", message.chat.id, processing_msg.message_id)
+            bot.edit_message_text("❌ Фото в облаке, но ошибка в Sheets", message.chat.id, processing_msg.message_id)
             
     except Exception as e:
         logger.error(f"Ошибка фото: {e}")
@@ -164,21 +152,16 @@ def webhook():
 def home(): 
     return "Bot is running", 200
 
-# =================== ЗАПУСК (СПОСОБ №1) ===================
+# =================== ЗАПУСК ===================
 if __name__ == '__main__':
-    # 1. Очищаем старые настройки
     bot.remove_webhook()
     time.sleep(1)
     
-    # 2. Устанавливаем новый Webhook автоматически
     render_url = os.environ.get('RENDER_EXTERNAL_URL')
     if render_url:
         webhook_url = f"{render_url}/webhook"
         bot.set_webhook(url=webhook_url)
-        logger.info(f"✅ Webhook успешно установлен на: {webhook_url}")
-    else:
-        logger.error("❌ Ошибка: Переменная RENDER_EXTERNAL_URL не найдена в настройках!")
-
-    # 3. Запускаем сервер
+        logger.info(f"✅ Webhook установлен на: {webhook_url}")
+    
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
